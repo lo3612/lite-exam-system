@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="mdui-theme-auto">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>RumiANS - Pro Exam</title>
+    
+    <!-- MDUI 2 CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2/mdui.css">
+    <!-- MDUI 2 Global JS -->
+    <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
+    <!-- MDUI 2 Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!-- SheetJS (Excel/CSV Parser) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Marked -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- LZ-String -->
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+    
+    <style>
+        /* --- 1. 核心布局 (Layout) --- */
+        :root {
+            --header-height: 64px;
+            --footer-height: 80px;
+            --page-padding: 20px;
+            --safe-bottom: env(safe-area-inset-bottom, 20px); 
+        }
+
+        body {
+            background-color: rgb(var(--mdui-color-background));
+            color: rgb(var(--mdui-color-on-background));
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            font-family: var(--mdui-typescale-body-medium-font);
+        }
+
+        /* 顶栏 */
+        .app-header {
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 90; 
+            background-color: rgba(var(--mdui-color-surface), 0.9);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(var(--mdui-color-outline-variant), 0.2);
+        }
+
+        /* 修复进度条显示问题：强制定位到底部 */
+        #progress-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 100; /* 确保在 border 上方 */
+            height: 4px; /* 预留高度防止布局跳动 */
+            overflow: hidden;
+        }
+
+        /* 底部栏 (悬浮岛风格) */
+        .app-footer {
+            position: fixed; bottom: 0; left: 0; width: 100%; z-index: 90;
+            background-color: rgb(var(--mdui-color-surface)); 
+            height: var(--footer-height); 
+            padding-bottom: var(--safe-bottom);
+            box-shadow: 0 -4px 24px rgba(0,0,0,0.06);
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s;
+        }
+
+        /* 内容区 */
+        .app-content {
+            width: 100%; max-width: 800px; margin: 0 auto;
+            padding-top: calc(var(--header-height) + 24px);
+            padding-bottom: calc(var(--footer-height) + var(--safe-bottom) + 40px);
+            padding-left: var(--page-padding); padding-right: var(--page-padding);
+            box-sizing: border-box;
+        }
+
+        /* PC / Tablet 适配 */
+        @media (min-width: 600px) {
+            .app-content {
+                padding-top: calc(var(--header-height) + 40px);
+            }
+            .app-header mdui-top-app-bar { max-width: 1000px; margin: 0 auto; }
+            .app-footer {
+                bottom: 30px; width: auto; min-width: 400px; left: 50%;
+                transform: translateX(-50%);
+                border-radius: 100px;
+                background-color: rgb(var(--mdui-color-surface-container));
+                box-shadow: var(--mdui-elevation-level3);
+                padding-bottom: 0; height: 72px; 
+                border: 1px solid rgba(var(--mdui-color-outline-variant), 0.5);
+            }
+            
+            /* 大屏恢复大尺寸卡片 */
+            .menu-card {
+                padding: 24px !important; gap: 20px !important; margin-bottom: 16px !important; border-radius: 24px !important;
+            }
+            .menu-icon {
+                width: 56px !important; height: 56px !important; border-radius: 16px !important;
+            }
+            .menu-icon mdui-icon { font-size: 28px !important; }
+            .menu-title { font-size: 18px !important; }
+            .stat-card { padding: 24px !important; border-radius: 24px !important; }
+
+            .menu-card, #page-home > div:first-child, #page-home > div:last-child {
+                max-width: 600px; margin-left: auto; margin-right: auto;
+            }
+        }
+        
+        .hidden { display: none !important; }
+
+        /* --- 2. 题目卡片 --- */
+        .question-section { 
+            margin-bottom: 24px; 
+            animation: fadeUp 0.3s cubic-bezier(0.2, 0.0, 0.2, 1); 
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .question-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        
+        .question-text {
+            font-size: var(--mdui-typescale-headline-small-size);
+            line-height: 1.6;
+            font-weight: var(--mdui-typescale-headline-small-weight);
+            color: rgb(var(--mdui-color-on-surface)); 
+            margin-bottom: 32px;
+            text-align: justify;
+        }
+        
+        /* 填空题括号高亮样式 */
+        .bracket-placeholder {
+            display: inline-block;
+            min-width: 60px;
+            border-bottom: 2px solid rgb(var(--mdui-color-primary));
+            color: transparent;
+            text-align: center;
+            margin: 0 4px;
+            vertical-align: bottom;
+        }
+        .bracket-filled {
+            color: rgb(var(--mdui-color-on-tertiary-container));
+            background-color: rgb(var(--mdui-color-tertiary-container));
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: bold;
+            margin: 0 4px;
+            text-decoration: underline;
+        }
+
+        /* --- 3. 选项卡片 --- */
+        .options-list { display: flex; flex-direction: column; gap: 12px; }
+        .option-item {
+            position: relative; display: flex; align-items: center; padding: 16px 20px;
+            border-radius: 12px; 
+            background-color: rgb(var(--mdui-color-surface-container)); 
+            color: rgb(var(--mdui-color-on-surface)); 
+            cursor: pointer; transition: all 0.2s;
+            border: 1px solid transparent; gap: 16px; 
+            min-height: 56px;
+        }
+
+        .option-item:active { 
+            background-color: rgb(var(--mdui-color-surface-container-high)); 
+            transform: scale(0.99);
+        }
+
+        .option-icon-wrapper {
+            display: flex; align-items: center; justify-content: center;
+            color: rgb(var(--mdui-color-on-surface-variant)); 
+            flex-shrink: 0; width: 24px; height: 24px;
+        }
+        .option-icon-wrapper mdui-icon { font-size: 24px; }
+
+        .option-content {
+            flex: 1; 
+            font-size: var(--mdui-typescale-body-large-size); 
+            line-height: var(--mdui-typescale-body-large-line-height);
+            word-break: break-word; margin: 0; 
+        }
+
+        .option-item.selected {
+            background-color: rgb(var(--mdui-color-secondary-container));
+            color: rgb(var(--mdui-color-on-secondary-container));
+            border-color: rgb(var(--mdui-color-secondary));
+        }
+        .option-item.selected .option-icon-wrapper { color: rgb(var(--mdui-color-on-secondary-container)); }
+
+        .option-item.correct { 
+            background-color: rgb(var(--mdui-color-success-container)); 
+            color: rgb(var(--mdui-color-on-success-container));
+            border-color: rgb(var(--mdui-color-success));
+        }
+        .option-item.correct .option-icon-wrapper { color: rgb(var(--mdui-color-on-success-container)); }
+
+        .option-item.wrong { 
+            background-color: rgb(var(--mdui-color-error-container)); 
+            color: rgb(var(--mdui-color-on-error-container));
+            border-color: rgb(var(--mdui-color-error));
+        }
+        .option-item.wrong .option-icon-wrapper { color: rgb(var(--mdui-color-on-error-container)); }
+        
+        .sheet-item.locked { opacity: 0.3; cursor: not-allowed; background-color: rgba(0,0,0,0.05); }
+
+        /* --- 4. 底部控制栏 --- */
+        .footer-inner {
+            width: 100%; max-width: 800px; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 100%;
+        }
+
+        .sheet-capsule {
+            display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+            background-color: rgb(var(--mdui-color-secondary-container));
+            color: rgb(var(--mdui-color-on-secondary-container));
+            border-radius: 12px; cursor: pointer; 
+            transition: filter 0.2s;
+        }
+        .sheet-capsule:active { filter: brightness(0.9); }
+        
+        .nav-group { display: flex; gap: 12px; align-items: center; height: 100%; }
+        
+        /* --- 5. 主页卡片 (Mobile First) --- */
+        .stat-card {
+            padding: 16px; /* Mobile: Reduced padding */
+            border-radius: 20px; 
+            background-color: rgb(var(--mdui-color-surface-container));
+        }
+        .menu-card {
+            position: relative; 
+            display: flex; align-items: center; gap: 16px; /* Mobile: Reduced gap */
+            padding: 16px; /* Mobile: Reduced padding */
+            margin-bottom: 12px; /* Mobile: Reduced margin */
+            border-radius: 20px; 
+            background-color: rgb(var(--mdui-color-surface-container-low));
+            cursor: pointer; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+            overflow: hidden;
+        }
+        .menu-card:hover { 
+            background-color: rgb(var(--mdui-color-surface-container)); 
+            box-shadow: var(--mdui-elevation-level1);
+            transform: translateY(-2px);
+        }
+        .menu-card:active { transform: scale(0.98); }
+
+        .menu-icon {
+            width: 48px; height: 48px; border-radius: 12px; /* Mobile: Smaller icon box */
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .menu-icon mdui-icon { font-size: 24px; } /* Mobile: Smaller icon */
+
+        .menu-content { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+        .menu-title { font-weight: 700; font-size: 16px; line-height: 1.4; color: rgb(var(--mdui-color-on-surface)); } /* Mobile: Smaller title */
+        .menu-desc { font-size: 12px; opacity: 0.6; margin-top: 2px; line-height: 1.4; }
+
+        /* 文件管理面板 */
+        .file-panel-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;
+        }
+        .file-stat-row {
+            display: flex; justify-content: space-between; padding: 12px; 
+            background: rgba(0,0,0,0.03); border-radius: 8px; margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        /* --- 6. 弹窗样式 --- */
+        mdui-dialog[fullscreen]::part(panel) {
+            display: flex; flex-direction: column; border-radius: 0; 
+            background-color: rgb(var(--mdui-color-surface)); height: 100dvh;
+        }
+        .sheet-container {
+            flex: 1; overflow-y: auto; padding: 24px;
+            padding-top: 80px; padding-bottom: 40px;
+        }
+        .sheet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 12px; }
+        .sheet-item {
+            aspect-ratio: 1; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+            background-color: rgb(var(--mdui-color-surface-container-highest));
+            color: rgb(var(--mdui-color-on-surface)); font-weight: 600; cursor: pointer;
+        }
+        .sheet-item.active { 
+            background-color: rgb(var(--mdui-color-primary)); 
+            color: rgb(var(--mdui-color-on-primary)); 
+        }
+        .sheet-item.correct { 
+            background-color: rgb(var(--mdui-color-success)); 
+            color: rgb(var(--mdui-color-on-success)); 
+        }
+        .sheet-item.wrong { 
+            background-color: rgb(var(--mdui-color-error)); 
+            color: rgb(var(--mdui-color-on-error)); 
+        }
+
+        /* --- 7. AI 卡片 --- */
+        .ai-box {
+            margin-top: 32px; padding: 24px; border-radius: 20px;
+            background-color: rgb(var(--mdui-color-surface-container));
+            border-left: 6px solid rgb(var(--mdui-color-tertiary)); display: none;
+        }
+        .ai-header { 
+            display: flex; align-items: center; gap: 10px; margin-bottom: 16px; 
+            color: rgb(var(--mdui-color-tertiary)); font-weight: bold; font-size: 1.1rem; 
+        }
+        .ai-content { 
+            font-size: 0.95rem; line-height: 1.7; 
+            color: rgb(var(--mdui-color-on-surface)); 
+        }
+        .ai-content p { margin: 0 0 12px 0; }
+        .ai-content code { 
+            background: rgb(var(--mdui-color-surface-container-high)); 
+            padding: 2px 6px; border-radius: 4px; font-family: monospace; 
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶栏 -->
+    <div class="app-header">
+        <mdui-top-app-bar variant="small" scroll-behavior="elevate">
+            <mdui-button-icon icon="home" onclick="handleGoHome()" id="btn-home-nav" data-i18n-tooltip="homeBtn"></mdui-button-icon>
+            <mdui-top-app-bar-title>RumiANS</mdui-top-app-bar-title>
+            <div style="flex-grow: 1"></div>
+            <mdui-button-icon icon="translate" onclick="toggleLanguage()" data-i18n-tooltip="switchLang"></mdui-button-icon>
+            <mdui-button-icon icon="settings" onclick="openSettings()" data-i18n-tooltip="settingsTitle"></mdui-button-icon>
+            <mdui-button-icon icon="info" onclick="document.getElementById('about-dialog').open = true" data-i18n-tooltip="about"></mdui-button-icon>
+        </mdui-top-app-bar>
+        <div id="progress-container" class="hidden">
+            <mdui-linear-progress id="progress-bar" value="0" max="100"></mdui-linear-progress>
+        </div>
+    </div>
+
+    <!-- 内容区 -->
+    <div class="app-content">
+        
+        <!-- 首页 -->
+        <div id="page-home">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
+                <div class="stat-card">
+                    <div style="font-size: 40px; font-weight: 800; color: rgb(var(--mdui-color-primary)); line-height: 1;" id="total-questions-count">0</div>
+                    <div style="font-size: 13px; opacity: 0.7; margin-top: 8px;" data-i18n="totalQuestions">Total</div>
+                </div>
+                <div class="stat-card">
+                    <div style="font-size: 40px; font-weight: 800; color: rgb(var(--mdui-color-error)); line-height: 1;" id="mistake-count">0</div>
+                    <div style="font-size: 13px; opacity: 0.7; margin-top: 8px;" data-i18n="mistakeBook">Mistakes</div>
+                </div>
+            </div>
+
+            <!-- 菜单卡片区域 -->
+            <div class="menu-card" onclick="startExam()">
+                <mdui-ripple></mdui-ripple>
+                <div class="menu-icon" style="background: rgb(var(--mdui-color-primary-container)); color: rgb(var(--mdui-color-on-primary-container));">
+                    <mdui-icon name="assignment"></mdui-icon>
+                </div>
+                <div class="menu-content">
+                    <div class="menu-title" data-i18n="mockExam">Mock Exam</div>
+                    <div class="menu-desc" data-i18n="mockExamDesc">CAT (LogEAP/Robust)</div>
+                </div>
+                <mdui-icon name="chevron_right" style="opacity: 0.4; font-size: 24px;"></mdui-icon>
+            </div>
+
+            <div class="menu-card" onclick="startPractice()">
+                <mdui-ripple></mdui-ripple>
+                <div class="menu-icon" style="background: rgb(var(--mdui-color-tertiary-container)); color: rgb(var(--mdui-color-on-tertiary-container));">
+                    <mdui-icon name="school"></mdui-icon>
+                </div>
+                <div class="menu-content">
+                    <div class="menu-title" data-i18n="practiceMode">Practice Mode</div>
+                    <div class="menu-desc" data-i18n="practiceModeDesc">Full bank + AI</div>
+                </div>
+                <mdui-icon name="chevron_right" style="opacity: 0.4; font-size: 24px;"></mdui-icon>
+            </div>
+
+            <div class="menu-card" onclick="startMistakeReview()">
+                <mdui-ripple></mdui-ripple>
+                <div class="menu-icon" style="background: rgb(var(--mdui-color-error-container)); color: rgb(var(--mdui-color-on-error-container));">
+                    <mdui-icon name="error_outline"></mdui-icon>
+                </div>
+                <div class="menu-content">
+                    <div class="menu-title" data-i18n="reviewMistakes">Review</div>
+                    <div class="menu-desc" data-i18n="reviewMistakesDesc">Weak points</div>
+                </div>
+                <mdui-icon name="chevron_right" style="opacity: 0.4; font-size: 24px;"></mdui-icon>
+            </div>
+
+            <!-- 文件管理系统入口 -->
+            <div class="menu-card" onclick="openFileManager()">
+                <mdui-ripple></mdui-ripple>
+                <div class="menu-icon" style="background: rgb(var(--mdui-color-surface-variant)); color: rgb(var(--mdui-color-on-surface-variant));">
+                    <mdui-icon name="folder_open"></mdui-icon>
+                </div>
+                <div class="menu-content">
+                    <div class="menu-title" data-i18n="fileManager">File Manager</div>
+                    <div class="menu-desc" data-i18n="fileManagerDesc">Import & Manage Data</div>
+                </div>
+                <mdui-icon name="chevron_right" style="opacity: 0.4; font-size: 24px;"></mdui-icon>
+            </div>
+        </div>
+
+        <!-- 考试页面 -->
+        <div id="page-exam" class="hidden">
+            <div class="question-section">
+                <div class="question-meta">
+                    <mdui-chip id="question-type-badge" variant="filter">Type</mdui-chip>
+                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                         <span style="font-weight: 700; font-feature-settings: 'tnum'; font-size: 16px;" id="exam-progress-text">1 / 100</span>
+                         <span style="font-size: 12px; opacity: 0.6; font-feature-settings: 'tnum'; font-family: monospace;" id="irt-ability-display">θ: 0.00</span>
+                    </div>
+                </div>
+
+                <div id="question-container"></div>
+                
+                <!-- AI 解析 -->
+                <div id="ai-analysis-box" class="ai-box">
+                    <div class="ai-header">
+                        <mdui-icon name="auto_awesome"></mdui-icon>
+                        <span data-i18n="aiAnalysisTitle">Gemini AI</span>
+                    </div>
+                    <div id="ai-analysis-content" class="ai-content"></div>
+                    <div style="margin-top: 16px; font-size: 12px; opacity: 0.6;" data-i18n="aiDisclaimer">Disclaimer</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果页 -->
+        <div id="page-result" class="hidden" style="text-align: center; padding-top: 60px;">
+            <div style="font-size: 120px; line-height: 1; margin-bottom: 24px;">🏆</div>
+            <div style="font-size: 14px; opacity: 0.6; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px;" data-i18n="scoreLabel">IRT Score</div>
+            <div id="result-score" style="font-size: 80px; font-weight: 900; line-height: 1; margin-bottom: 16px; color: rgb(var(--mdui-color-primary));">0</div>
+            <div id="result-theta" style="font-size: 16px; opacity: 0.7; margin-bottom: 64px; font-family: monospace;">Ability (θ): 0.00 (SE: 1.0)</div>
+            
+            <div style="max-width: 360px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+                <mdui-button variant="filled" full-width onclick="reviewWrongQuestions()" style="height: 56px;" icon="history_edu" data-i18n="reviewBtn">Review</mdui-button>
+                <mdui-button variant="outlined" full-width onclick="showPage('page-home')" style="height: 56px;" icon="home" data-i18n="homeBtn">Home</mdui-button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 底部控制栏 -->
+    <div class="app-footer hidden" id="exam-footer">
+        <div class="footer-inner">
+            <div class="sheet-capsule" onclick="document.getElementById('sheet-dialog').open = true">
+                <mdui-icon name="grid_view" style="font-size: 20px;"></mdui-icon>
+                <span class="sheet-timer" id="timer-display" style="font-weight: 700; font-feature-settings: 'tnum';">00:00</span>
+            </div>
+
+            <div class="nav-group">
+                <mdui-button-icon variant="filled" icon="arrow_back" id="btn-prev" onclick="prevQuestion()" disabled></mdui-button-icon>
+                <mdui-button variant="filled" id="btn-submit" class="hidden" onclick="submitPaper()" icon="done_all" data-i18n="submit">Submit</mdui-button>
+                <mdui-button-icon variant="filled" icon="arrow_forward" id="btn-next" onclick="nextQuestion()"></mdui-button-icon>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗：答题卡 -->
+    <mdui-dialog id="sheet-dialog" fullscreen close-on-overlay-click>
+        <div style="position: absolute; top: 0; width: 100%; z-index: 10;">
+            <mdui-top-app-bar>
+                <mdui-button-icon icon="close" onclick="document.getElementById('sheet-dialog').open = false"></mdui-button-icon>
+                <mdui-top-app-bar-title data-i18n="sheetTitle">Sheet</mdui-top-app-bar-title>
+                <div style="flex-grow: 1"></div>
+                <mdui-button variant="text" onclick="submitPaper()" data-i18n="submit">Submit</mdui-button>
+            </mdui-top-app-bar>
+        </div>
+        <div class="sheet-container">
+            <div class="sheet-grid" id="answer-sheet"></div>
+        </div>
+    </mdui-dialog>
+
+    <!-- 弹窗：文件管理系统 -->
+    <mdui-dialog id="file-manager-dialog" headline="File Manager" data-i18n-headline="fileManager">
+        <div style="display: flex; flex-direction: column; padding-top: 8px;">
+            <div class="file-stat-row">
+                <span style="opacity: 0.7;" data-i18n="currentQuestions">Questions:</span>
+                <strong id="fm-question-count">0</strong>
+            </div>
+            <div class="file-stat-row">
+                 <span style="opacity: 0.7;" data-i18n="storageUsed">Storage:</span>
+                 <strong id="fm-storage-size">0 KB</strong>
+            </div>
+
+            <div class="file-panel-grid">
+                <mdui-button variant="filled" icon="upload_file" full-width onclick="document.getElementById('fileInput').click()" data-i18n="importFile">Import</mdui-button>
+                <mdui-button variant="tonal" icon="download" full-width onclick="downloadTemplate()" data-i18n="template">Template</mdui-button>
+            </div>
+            <input type="file" id="fileInput" accept=".csv,.txt,.xls,.xlsx" style="display: none" onchange="handleFileUpload(this)">
+
+            <div style="margin-top: 16px; display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 13px; opacity: 0.7;" data-i18n="encoding">Encoding:</span>
+                <mdui-select id="encoding-select" value="auto" variant="outlined" style="height: 40px; width: 140px;">
+                    <mdui-menu-item value="auto">Auto (UTF-8)</mdui-menu-item>
+                    <mdui-menu-item value="936">GBK (Chinese)</mdui-menu-item>
+                </mdui-select>
+            </div>
+
+            <div style="margin-top: 24px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 16px;">
+                <mdui-button variant="text" full-width onclick="clearAppCache()" style="color: rgb(var(--mdui-color-error));" icon="delete_forever" data-i18n="clearAllData">Clear All Data</mdui-button>
+            </div>
+        </div>
+        <mdui-button slot="action" variant="text" onclick="document.getElementById('file-manager-dialog').open = false" data-i18n="close">Close</mdui-button>
+    </mdui-dialog>
+
+    <!-- 弹窗：设置 -->
+    <mdui-dialog id="settings-dialog" headline="Settings" data-i18n-headline="settingsTitle">
+        <div style="display: flex; flex-direction: column; gap: 24px; padding-top: 12px;">
+            <div class="settings-group">
+                 <div style="display:flex; gap:8px; align-items:center;">
+                    <mdui-text-field style="flex:1" label="Google Gemini API Key" type="password" id="setting-api-key" icon="key" toggle-password></mdui-text-field>
+                    <mdui-button variant="outlined" onclick="verifyApiKey()" style="height: 52px; margin-top: 2px;">Test</mdui-button>
+                </div>
+                <div style="font-size: 12px; opacity: 0.6; padding-left: 12px; margin-top: 4px;">Enter your API Key for AI features</div>
+                
+                <div style="display: flex; gap: 16px; margin-top: 16px;">
+                    <mdui-text-field style="flex:1" label="Questions Count" type="number" id="setting-total" data-i18n-label="settingsTotal"></mdui-text-field>
+                    <mdui-text-field style="flex:1" label="Judge Count" type="number" id="setting-judge" data-i18n-label="settingsJudge"></mdui-text-field>
+                </div>
+            </div>
+        </div>
+        <mdui-button slot="action" variant="text" onclick="document.getElementById('settings-dialog').open = false" data-i18n="cancel">Cancel</mdui-button>
+        <mdui-button slot="action" onclick="saveSettings()" data-i18n="save">Save</mdui-button>
+    </mdui-dialog>
+
+    <!-- 弹窗：退出 -->
+    <mdui-dialog id="confirm-exit-dialog" close-on-esc close-on-overlay-click headline="Exit?" data-i18n-headline="exitTitle">
+        <div style="padding-top: 8px; opacity: 0.8;" data-i18n="exitDesc">Progress lost.</div>
+        <mdui-button slot="action" variant="text" onclick="document.getElementById('confirm-exit-dialog').open = false" data-i18n="cancel">Cancel</mdui-button>
+        <mdui-button slot="action" onclick="confirmExit()" data-i18n="confirmExit">Exit</mdui-button>
+    </mdui-dialog>
+
+    <!-- 关于弹窗 -->
+    <mdui-dialog id="about-dialog" headline="About" data-i18n-headline="about">
+        <div style="text-align: center; margin-bottom: 24px; padding-top: 16px;">
+            <div style="width: 80px; height: 80px; background: rgb(var(--mdui-color-primary-container)); border-radius: 24px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; color: rgb(var(--mdui-color-on-primary-container));">
+                <mdui-icon name="school" style="font-size: 40px;"></mdui-icon>
+            </div>
+            <div style="font-size: 22px; font-weight: 800; color: rgb(var(--mdui-color-on-surface));">RumiANS</div>
+            <div style="font-size: 14px; opacity: 0.6;">v3.2</div>
+        </div>
+
+        <!-- Core Features Section -->
+        <mdui-list>
+            <mdui-list-subheader data-i18n="coreFeatures">Core Features</mdui-list-subheader>
+            <mdui-list-item nonclickable icon="security" data-i18n-headline="privacyTitle" data-i18n-description="privacyDesc" headline="Privacy First" description="Local storage only. No cloud upload."></mdui-list-item>
+            <mdui-list-item nonclickable icon="smartphone" data-i18n-headline="mobileTitle" data-i18n-description="mobileDesc" headline="Mobile Native" description="Pure CSS responsive design."></mdui-list-item>
+            <mdui-list-item nonclickable icon="psychology" data-i18n-headline="algoTitle" data-i18n-description="algoDesc" headline="Advanced IRT" description="2-PL/3-PL Model (Float32 High Perf)."></mdui-list-item>
+        </mdui-list>
+
+        <mdui-divider inset></mdui-divider>
+
+        <!-- Open Source Licenses Section -->
+        <mdui-list>
+            <mdui-list-subheader data-i18n="osLicenses">Open Source Licenses</mdui-list-subheader>
+            
+            <mdui-list-item href="https://www.mdui.org" target="_blank" headline="MDUI 2" data-i18n-description="licenseMDUI" description="Material Design 3 Web Components" icon="code" end-icon="open_in_new"></mdui-list-item>
+            
+            <mdui-list-item href="https://sheetjs.com" target="_blank" headline="SheetJS (xlsx)" data-i18n-description="licenseSheetJS" description="Apache 2.0 - Spreadsheet Data Parser" icon="table_view" end-icon="open_in_new"></mdui-list-item>
+            
+            <mdui-list-item href="https://github.com/markedjs/marked" target="_blank" headline="Marked" data-i18n-description="licenseMarked" description="MIT License - Markdown Parser" icon="table" end-icon="open_in_new"></mdui-list-item>
+            
+            <mdui-list-item href="https://github.com/pieroxy/lz-string" target="_blank" headline="LZ-String" data-i18n-description="licenseLZ" description="MIT License - LocalStorage Compression" icon="compress" end-icon="open_in_new"></mdui-list-item>
+            
+            <mdui-list-item href="https://deepmind.google/technologies/gemini/" target="_blank" headline="Google Gemini" data-i18n-description="licenseGemini" description="Generative AI Model" icon="auto_awesome" end-icon="open_in_new"></mdui-list-item>
+            
+            <mdui-list-item nonclickable headline="Custom IRT Engine" data-i18n-description="licenseIRT" description="MIT License - Item Response Theory Estimation" icon="functions"></mdui-list-item>
+        </mdui-list>
+        
+        <div style="text-align: center; margin-top: 24px; font-size: 12px; opacity: 0.4;" data-i18n="designedWith">
+            Designed with Material Design 3
+        </div>
+
+        <mdui-button slot="action" variant="text" onclick="document.getElementById('about-dialog').open = false" data-i18n="close">Close</mdui-button>
+    </mdui-dialog>
+    
+    <!-- AI Confirmation Dialog -->
+    <mdui-dialog id="ai-confirm-dialog" headline="AI Analysis" data-i18n-headline="aiAnalysisTitle">
+        <div style="padding-top: 8px; opacity: 0.8;" data-i18n="aiConfirm">Get AI analysis? (Consumes Token)</div>
+        <mdui-button slot="action" variant="text" onclick="document.getElementById('ai-confirm-dialog').open = false" data-i18n="cancel">Cancel</mdui-button>
+        <mdui-button slot="action" onclick="performAIAnalysis()" data-i18n="btnConfirm">Confirm</mdui-button>
+    </mdui-dialog>
+
+    <mdui-snackbar id="snackbar"></mdui-snackbar>
+
+<script>
+    // --- 0. Theme & Init ---
+    function initTheme() {
+        mdui.setColorScheme('#0061a4', {
+            customColors: [ { name: 'success', value: '#4CAF50' } ]
+        });
+        // Ensure language is loaded correctly on init
+        const storedLang = localStorage.getItem('appLang');
+        if (storedLang) currentLang = storedLang;
+        updateText(); 
+    }
+
+    // --- Storage Manager ---
+    const Storage = {
+        save: (key, data) => {
+            if (typeof LZString === 'undefined') { localStorage.setItem(key, JSON.stringify(data)); return; }
+            try {
+                const json = JSON.stringify(data);
+                localStorage.setItem(key, LZString.compressToUTF16(json));
+            } catch(e) { try { localStorage.setItem(key, JSON.stringify(data)); } catch(z) {} }
+        },
+        load: (key, defaultVal = null) => {
+            const compressed = localStorage.getItem(key);
+            if (!compressed) return defaultVal;
+            if (typeof LZString !== 'undefined') {
+                try {
+                    const decompressed = LZString.decompressFromUTF16(compressed);
+                    if (decompressed) return JSON.parse(decompressed);
+                } catch(e) { }
+            }
+            try { return JSON.parse(compressed); } catch(z) { return defaultVal; }
+        },
+        size: () => {
+            let total = 0;
+            for(let x in localStorage) { if(localStorage.hasOwnProperty(x)) total += ((localStorage[x].length * 2)); }
+            return (total / 1024).toFixed(2) + " KB";
+        },
+        clear: () => { localStorage.clear(); window.location.reload(); }
+    };
+
+    // --- Global State ---
+    let currentLang = 'zh';
+    let userApiKey = "";
+    let config = { totalQuestions: 100, judgeCount: 55 };
+    let allQuestions = [], currentExamList = [], userAnswers = {}, currentMode = 'exam', currentIndex = 0, timerInterval, timeElapsed = 0;
+    let currentTheta = 0, currentSE = 1.0, responseHistory = []; 
+    
+    // --- Localization ---
+    const messages = {
+        zh: {
+            totalQuestions: "总题库", mistakeBook: "错题本", mockExam: "模拟考试", mockExamDesc: "CAT (LogEAP/Robust)",
+            practiceMode: "顺序练习", practiceModeDesc: "全库遍历 · AI解析", reviewMistakes: "错题复习", reviewMistakesDesc: "专项攻克 · 查漏补缺",
+            importFile: "导入", template: "下载模板", encoding: "CSV编码:",
+            sheet: "答题卡", submit: "交卷", sheetTitle: "答题卡", exitTitle: "确定退出考试？", exitDesc: "退出后当前进度将丢失，且无法恢复。",
+            cancel: "取消", confirmExit: "确定退出", settingsTitle: "系统设置", save: "保存配置", close: "关闭",
+            scoreLabel: "IRT 能力评分", reviewBtn: "查看错题解析", homeBtn: "返回首页", judge: "判断题", choice: "单选题",
+            aiAnalysisTitle: "Gemini 智能分析", aiButton: "获取 AI 深度解析", aiDisclaimer: "* AI 生成内容仅供参考，请以专业教材为准。",
+            aiThinking: "Gemini 正在思考中...", noQuestions: "请先导入题库", parseSuccess: "成功加载 {n} 道题目",
+            parseFail: "解析失败，请检查文件格式", saveSuccess: "设置已保存", noMistakes: "太棒了，错题本是空的！",
+            apiKeyRequired: "请在设置中配置 Gemini API Key", aiError: "AI 请求失败，请检查网络或 Key",
+            settingsTotal: "总题数", settingsJudge: "判断题数量", switchLang: "切换语言", about: "关于",
+            verifySuccess: "API Key 有效！", verifyFail: "验证失败，请检查 Key。", aiConfirm: "消耗 Token 获取解析？",
+            fileManager: "题库管理", fileManagerDesc: "导入 · 模板 · 数据", currentQuestions: "当前题量:", storageUsed: "占用空间:",
+            clearAllData: "清空所有数据", coreFeatures: "核心特性",
+            privacyTitle: "隐私优先", privacyDesc: "纯本地存储，数据不上传云端。",
+            mobileTitle: "原生移动适配", mobileDesc: "纯 CSS 响应式设计，流畅体验。",
+            algoTitle: "先进算法", algoDesc: "2-PL/3-PL IRT 模型 (Float32 高性能计算)。",
+            osLicenses: "开源许可",
+            licenseMDUI: "Material Design 3 Web 组件库",
+            licenseSheetJS: "电子表格数据解析",
+            licenseMarked: "Markdown 解析器",
+            licenseLZ: "本地存储压缩算法",
+            licenseIRT: "项目反应理论参数估计",
+            licenseGemini: "生成式 AI 模型支持",
+            designedWith: "基于 Material Design 3 设计",
+            dataCleared: "数据已清空", btnConfirm: "确定"
+        },
+        en: {
+            totalQuestions: "Total Questions", mistakeBook: "Mistakes", mockExam: "Mock Exam", mockExamDesc: "CAT (LogEAP/Robust)",
+            practiceMode: "Practice Mode", practiceModeDesc: "Full bank · AI Analysis", reviewMistakes: "Review Mistakes", reviewMistakesDesc: "Focus on weak points.",
+            importFile: "Import", template: "Template", encoding: "Encoding:",
+            sheet: "Sheet", submit: "Submit", sheetTitle: "Answer Sheet", exitTitle: "Quit Exam?", exitDesc: "Progress will be lost and cannot be recovered.",
+            cancel: "Cancel", confirmExit: "Quit", settingsTitle: "Settings", save: "Save", close: "Close",
+            scoreLabel: "IRT Ability Score", reviewBtn: "Review Answers", homeBtn: "Back to Home", judge: "T/F", choice: "Choice",
+            aiAnalysisTitle: "Gemini AI Analysis", aiButton: "Get AI Explanation", aiDisclaimer: "* AI generated content is for reference only.",
+            aiThinking: "Gemini is thinking...", noQuestions: "Please import a question bank first.", parseSuccess: "Loaded {n} questions successfully",
+            parseFail: "Parse failed, check format.", saveSuccess: "Settings saved.", noMistakes: "Great! No mistakes found.",
+            apiKeyRequired: "Please configure Gemini API Key in settings", aiError: "AI request failed. Check network or Key",
+            settingsTotal: "Total Questions", settingsJudge: "Judge Questions", switchLang: "Switch Language", about: "About",
+            verifySuccess: "API Key is valid!", verifyFail: "Invalid API Key.", aiConfirm: "Get AI analysis?",
+            fileManager: "File Manager", fileManagerDesc: "Import · Data · Reset", currentQuestions: "Questions:", storageUsed: "Storage:",
+            clearAllData: "Clear All Data", coreFeatures: "Core Features",
+            privacyTitle: "Privacy First", privacyDesc: "Local storage only. No cloud upload.",
+            mobileTitle: "Mobile Native", mobileDesc: "Pure CSS responsive design.",
+            algoTitle: "Advanced IRT", algoDesc: "2-PL/3-PL Model (Float32 High Perf).",
+            osLicenses: "Open Source Licenses",
+            licenseMDUI: "Material Design 3 Web Components",
+            licenseSheetJS: "Spreadsheet Data Parser",
+            licenseMarked: "Markdown Parser",
+            licenseLZ: "LocalStorage Compression",
+            licenseIRT: "Item Response Theory Estimation",
+            licenseGemini: "Generative AI Model Support",
+            designedWith: "Designed with Material Design 3",
+            dataCleared: "Data cleared", btnConfirm: "Confirm"
+        }
+    };
+
+    function t(key, params = {}) {
+        let str = messages[currentLang][key] || key;
+        for (const k in params) str = str.replace(`{${k}}`, params[k]);
+        return str;
+    }
+
+    function updateText() {
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if(messages[currentLang][key]) {
+                if (el.tagName.includes('BUTTON') && el.querySelector('[slot="icon"]')) {
+                    const icon = el.querySelector('[slot="icon"]');
+                    Array.from(el.childNodes).forEach(node => {
+                        if (node.nodeType === Node.TEXT_NODE) node.textContent = '';
+                    });
+                    el.appendChild(document.createTextNode(messages[currentLang][key]));
+                    el.appendChild(icon);
+                } else {
+                    el.innerText = messages[currentLang][key];
+                }
+            }
+        });
+        
+        // Enhanced attribute handling for headlines/descriptions
+        ['tooltip', 'label', 'headline', 'description'].forEach(attr => {
+            document.querySelectorAll(`[data-i18n-${attr}]`).forEach(el => {
+                const key = el.getAttribute(`data-i18n-${attr}`);
+                if(messages[currentLang][key]) el.setAttribute(attr, messages[currentLang][key]);
+            });
+        });
+        
+        if (!document.getElementById('page-exam').classList.contains('hidden') && currentExamList.length > 0) {
+            const q = currentExamList[currentIndex];
+            document.getElementById('question-type-badge').innerText = q.type === 'judge' ? t('judge') : t('choice');
+        }
+    }
+
+    function toggleLanguage() {
+        currentLang = currentLang === 'zh' ? 'en' : 'zh';
+        localStorage.setItem('appLang', currentLang);
+        updateText();
+    }
+
+    // --- IRT Algorithm (Optimized) ---
+    const IRT = {
+        MIN_THETA: -4.0, MAX_THETA: 4.0, QUAD_POINTS: 161,
+        itemParams: { a: null, b: null, c: null },
+        itemMap: new Map(),
+        gridThetas: null, logP_Table: null, logQ_Table: null,
+
+        init: (items) => {
+            const numItems = items.length;
+            IRT.itemParams.a = new Float32Array(numItems);
+            IRT.itemParams.b = new Float32Array(numItems);
+            IRT.itemParams.c = new Float32Array(numItems);
+            IRT.itemMap.clear();
+
+            items.forEach((item, idx) => {
+                IRT.itemParams.a[idx] = item.irt_a;
+                IRT.itemParams.b[idx] = item.irt_b;
+                IRT.itemParams.c[idx] = item.irt_c;
+                IRT.itemMap.set(item.id, idx);
+            });
+
+            IRT.gridThetas = new Float32Array(IRT.QUAD_POINTS);
+            const step = (IRT.MAX_THETA - IRT.MIN_THETA) / (IRT.QUAD_POINTS - 1);
+            for(let i=0; i<IRT.QUAD_POINTS; i++) IRT.gridThetas[i] = IRT.MIN_THETA + i * step;
+
+            IRT.logP_Table = new Float32Array(numItems * IRT.QUAD_POINTS);
+            IRT.logQ_Table = new Float32Array(numItems * IRT.QUAD_POINTS);
+            const D = 1.7;
+            
+            for (let i = 0; i < numItems; i++) {
+                const a = IRT.itemParams.a[i], b = IRT.itemParams.b[i], c = IRT.itemParams.c[i];
+                const offset = i * IRT.QUAD_POINTS;
+                for (let q = 0; q < IRT.QUAD_POINTS; q++) {
+                    const t = IRT.gridThetas[q];
+                    const p = c + (1 - c) / (1 + Math.exp(-D * a * (t - b)));
+                    const safeP = Math.max(1e-9, Math.min(1 - 1e-9, p));
+                    IRT.logP_Table[offset + q] = Math.log(safeP);
+                    IRT.logQ_Table[offset + q] = Math.log(1 - safeP);
+                }
+            }
+        },
+
+        getFisherInfo: (theta, a, b, c) => {
+            const D = 1.7;
+            const p = c + (1 - c) / (1 + Math.exp(-D * a * (theta - b)));
+            const prime = D * a * (p - c) * (1 - p) / (1 - c);
+            return (prime * prime) / (p * (1 - p));
+        },
+
+        estimateThetaEAP: (responses) => {
+            if (responses.length === 0) return { theta: 0, se: 1.0 };
+            let logPosteriors = new Float64Array(IRT.QUAD_POINTS);
+            
+            for (let i = 0; i < IRT.QUAD_POINTS; i++) {
+                let logL = 0;
+                for (let r of responses) {
+                    const idx = IRT.itemMap.get(r.id);
+                    if (idx !== undefined) {
+                         logL += r.isCorrect ? IRT.logP_Table[idx * IRT.QUAD_POINTS + i] : IRT.logQ_Table[idx * IRT.QUAD_POINTS + i];
+                    }
+                }
+                logPosteriors[i] = logL + (-0.5 * IRT.gridThetas[i] ** 2); 
+            }
+
+            let maxLog = -Infinity;
+            for(let v of logPosteriors) if(v > maxLog) maxLog = v;
+            
+            let sumExp = 0, weightedSumTheta = 0, probs = new Float64Array(IRT.QUAD_POINTS);
+            for(let i=0; i<IRT.QUAD_POINTS; i++) {
+                const p = Math.exp(logPosteriors[i] - maxLog);
+                probs[i] = p; sumExp += p; weightedSumTheta += IRT.gridThetas[i] * p;
+            }
+            
+            const theta = weightedSumTheta / sumExp;
+            let weightedVar = 0;
+            for(let i=0; i<IRT.QUAD_POINTS; i++) weightedVar += Math.pow(IRT.gridThetas[i] - theta, 2) * probs[i];
+            
+            return { theta: Math.max(-3.5, Math.min(3.5, theta)), se: Math.sqrt(weightedVar / sumExp) };
+        },
+
+        thetaToScore: (theta) => Math.max(0, Math.min(100, Math.round(((theta + 3) / 6) * 100)))
+    };
+
+    // --- Logic ---
+    function showToast(m) { 
+        const s = document.getElementById('snackbar'); 
+        s.textContent = m; 
+        s.open = true; 
+    }
+    
+    function shuffle(a) { return a.sort(() => Math.random() - 0.5); }
+    
+    function updateDashboard() {
+        document.getElementById('total-questions-count').innerText = allQuestions.length;
+        document.getElementById('mistake-count').innerText = (Storage.load('mistakeBook')||[]).length;
+        const fmCount = document.getElementById('fm-question-count');
+        const fmSize = document.getElementById('fm-storage-size');
+        if(fmCount) fmCount.innerText = allQuestions.length;
+        if(fmSize) fmSize.innerText = Storage.size();
+    }
+
+    function showPage(id) {
+        ['page-home','page-exam','page-result'].forEach(p => document.getElementById(p).classList.add('hidden'));
+        document.getElementById(id).classList.remove('hidden');
+        const inExam = id === 'page-exam';
+        document.getElementById('exam-footer').classList.toggle('hidden', !inExam);
+        document.getElementById('progress-container').classList.toggle('hidden', !inExam);
+        if(!inExam) clearInterval(timerInterval);
+        window.scrollTo(0,0);
+    }
+    
+    function startTimer() {
+        clearInterval(timerInterval); timeElapsed=0;
+        timerInterval = setInterval(() => {
+            timeElapsed++;
+            const m = String(Math.floor(timeElapsed/60)).padStart(2,'0'), s = String(timeElapsed%60).padStart(2,'0');
+            document.getElementById('timer-display').innerText = `${m}:${s}`;
+        }, 1000);
+    }
+    
+    function openSettings() { 
+        document.getElementById('setting-total').value = config.totalQuestions;
+        document.getElementById('setting-judge').value = config.judgeCount;
+        document.getElementById('setting-api-key').value = userApiKey;
+        document.getElementById('settings-dialog').open = true; 
+    }
+    
+    function openFileManager() {
+        updateDashboard(); 
+        document.getElementById('file-manager-dialog').open = true;
+    }
+
+    function updateCacheStats() {
+        const el = document.getElementById('cache-stats');
+        if(el) el.innerText = `Used: ${Storage.size()}`;
+    }
+    
+    function clearAppCache() {
+        if(confirm("Clear all data?")) {
+            Storage.clear();
+            showToast(t('dataCleared'));
+            document.getElementById('file-manager-dialog').open = false;
+        }
+    }
+
+    function handleFileUpload(inp) {
+        if (typeof XLSX === 'undefined') { showToast("Error: XLSX lib missing."); inp.value=''; return; }
+        const f = inp.files[0]; if(!f) return;
+        showToast("Loading...");
+        const r = new FileReader();
+        r.onload = e => {
+            try {
+                const codepage = document.getElementById('encoding-select').value === '936' ? 936 : undefined;
+                const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', codepage: codepage});
+                const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:""});
+                processData(data);
+                document.getElementById('file-manager-dialog').open = false;
+            } catch(e) { showToast(t('parseFail')); console.error(e); }
+            inp.value='';
+        };
+        r.readAsArrayBuffer(f);
+    }
+
+    function processData(data) {
+        const qs = [];
+        const findKey = (row, candidates, excludeKeys = []) => {
+            const keys = Object.keys(row).filter(k => !excludeKeys.includes(k));
+            for(const c of candidates) {
+                const k = keys.find(key => key.trim() === c);
+                if(k) return k;
+            }
+            for(const c of candidates) {
+                const k = keys.find(key => key.trim().includes(c));
+                if(k) return k;
+            }
+            return null;
+        };
+
+        data.forEach((row, i) => {
+            let tk = findKey(row, ['大题题干', '题干', 'Question', 'Title']);
+            let ak = findKey(row, ['正确答案', '答案', 'Answer', 'Correct Answer'], [tk]);
+            
+            if(!tk || !row[tk]) return; 
+            
+            const q = { id: i, title: String(row[tk]).trim(), answer: ak ? String(row[ak]).trim().toUpperCase() : '', options:{}, type:'choice' };
+            ['A','B','C','D'].forEach(k => {
+                let ok = findKey(row, [`选项${k}`, `Option ${k}`, `Option${k}`, k], [tk, ak]);
+                if(ok && (ok.includes('答案') || ok.includes('Answer')) && !ok.includes('选项') && !ok.includes('Option')) {
+                    ok = null; 
+                }
+                if(ok && row[ok]) q.options[k] = String(row[ok]).trim();
+            });
+
+            const isJudgeText = (s) => s && ['正确','错误','True','False'].includes(s);
+            if(isJudgeText(q.options.A) || isJudgeText(q.options.B)) q.type = 'judge';
+            else if(!q.options.C && !q.options.D) { 
+                q.type = 'judge'; 
+                if(!q.options.A) { q.options.A = t('judge') === '判断题' ? '正确' : 'True'; q.options.B = t('judge') === '判断题' ? '错误' : 'False'; }
+            }
+            
+            const hash = q.title.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
+            const normRand = (min, max, seed) => {
+                const x = Math.sin(seed++) * 10000;
+                return min + (x - Math.floor(x)) * (max - min);
+            };
+            q.irt_b = normRand(-3, 3, hash); 
+            q.irt_a = normRand(0.5, 2.0, hash + 1); 
+            q.irt_c = q.type === 'choice' ? 0.25 : 0.5; 
+
+            if(q.title && q.answer) qs.push(q);
+        });
+
+        if(qs.length) {
+            allQuestions = qs; 
+            Storage.save('examQuestions', qs); 
+            IRT.init(allQuestions); 
+            updateDashboard(); showToast(t('parseSuccess', {n:qs.length}));
+        } else showToast(t('parseFail'));
+    }
+
+    function downloadTemplate() {
+        let content = "";
+        let filename = "template.csv";
+
+        if (currentLang === 'en') {
+            content = `Question,Correct Answer,Option A,Option B,Option C,Option D
+"In order to meet increasingly strict emission requirements and improve fuel economy, the design of ( ) systems is essential in the automotive engine design process.",A,Electronic Control,Manual Control,Mechanical Control,
+"Engine Principles (True/False Question)",A,True,False,,
+"A friction clutch is mainly composed of ( ).",B,Clamping Mechanism,Driven Plate,Flywheel,Torsional Damper`;
+            filename = "template_en.csv";
+        } else {
+            content = `\uFEFF大题题干,正确答案,选项A,选项B,选项C,选项D
+为满足日益严格的排放要求和提高经济性，在汽车发动机设计过程中必须进行( )系统的设计。,A,电子控制,人工控制,机械控制,
+发动机原理?,A,正确,错误,,
+摩擦式离合器主要由( )组成。,B,压紧机构,从动盘,飞轮,扭转减震器`;
+            filename = "template_zh.csv";
+        }
+
+        const a = document.createElement('a'); 
+        const blob = new Blob([content.startsWith('\uFEFF') ? content : '\uFEFF' + content], {type:'text/csv;charset=utf-8;'});
+        a.href = URL.createObjectURL(blob); 
+        a.download = filename; 
+        a.click();
+    }
+    
+    function addToMistake(q) {
+        let m = Storage.load('mistakeBook', []);
+        if(!m.includes(q.title)) { m.push(q.title); Storage.save('mistakeBook', m); updateDashboard(); }
+    }
+    function removeFromMistake(q) {
+        let m = Storage.load('mistakeBook', []);
+        m = m.filter(t=>t!==q.title); Storage.save('mistakeBook', m); updateDashboard();
+    }
+
+    async function verifyApiKey() {
+        const key = document.getElementById('setting-api-key').value;
+        if(!key) return showToast(t('apiKeyRequired'));
+        const btn = document.querySelector('[onclick="verifyApiKey()"]');
+        const txt = btn.innerText; btn.innerText = "..."; btn.disabled = true;
+        try {
+             const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${key}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }] })
+            });
+            const data = await res.json();
+            if(data.error) throw new Error();
+            showToast(t('verifySuccess'));
+        } catch(e) { showToast(t('verifyFail')); } 
+        finally { btn.innerText = txt; btn.disabled = false; }
+    }
+
+    function generateAIAnalysis() {
+        if (!userApiKey) { showToast(t('apiKeyRequired')); openSettings(); return; }
+        if (typeof marked === 'undefined') { return showToast('Library loading...'); }
+        const q = currentExamList[currentIndex];
+        if(q.aiAnalysis) return;
+        
+        // Open custom dialog instead of window.confirm
+        document.getElementById('ai-confirm-dialog').open = true;
+    }
+
+    async function performAIAnalysis() {
+        document.getElementById('ai-confirm-dialog').open = false;
+        const q = currentExamList[currentIndex];
+        const box = document.getElementById('ai-analysis-box');
+        const content = document.getElementById('ai-analysis-content');
+        const btn = document.getElementById('btn-ai-analysis');
+        box.style.display = 'block';
+        content.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px;"><mdui-circular-progress></mdui-circular-progress>${t('aiThinking')}</div>`;
+        btn.disabled = true;
+
+        const langName = currentLang === 'zh' ? 'Chinese' : 'English';
+        const userPrompt = `Question: "${q.title}". Options: A:${q.options.A} B:${q.options.B} C:${q.options.C} D:${q.options.D}. Correct Answer: ${q.answer}. Explain nicely.`;
+        const systemPrompt = `Expert tutor. Concise ${langName} explanation in Markdown.`;
+
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${userApiKey}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    contents: [{ role: "user", parts: [{ text: userPrompt }] }] 
+                })
+            });
+            const data = await res.json();
+            if(data.error) throw new Error(data.error.message);
+            
+            const rawText = data.candidates[0].content.parts[0].text;
+            q.aiAnalysis = marked.parse(rawText);
+            content.innerHTML = q.aiAnalysis;
+            setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+        } catch(e) { 
+            console.error(e);
+            content.innerText = t('aiError'); 
+        }
+        btn.disabled = false;
+    }
+
+    function prepareExam(mode, list) {
+        if(list.length === 0) return showToast(t('noQuestions'));
+        currentMode = mode; userAnswers = {}; currentIndex = 0; timeElapsed = 0; currentTheta = 0; currentSE = 1.0; responseHistory = []; 
+        currentExamList = mode === 'exam' ? [list.reduce((p, c) => (Math.abs(c.irt_b - 0) < Math.abs(p.irt_b - 0) ? c : p))] : list;
+        showPage('page-exam'); renderQuestion(); startTimer(); renderSheet();
+    }
+
+    function startExam() { allQuestions.length ? prepareExam('exam', allQuestions) : showToast(t('noQuestions')); }
+    function startPractice() { prepareExam('practice', shuffle([...allQuestions])); }
+    function startMistakeReview() {
+        if (allQuestions.length === 0) return showToast(t('noQuestions'));
+        const m = Storage.load('mistakeBook', []);
+        const qs = allQuestions.filter(q => m.includes(q.title));
+        qs.length ? prepareExam('mistake', qs) : showToast(t('noMistakes'));
+    }
+
+    function nextQuestion() { 
+        if (currentMode === 'exam' && currentIndex === currentExamList.length - 1) {
+            const lastQ = currentExamList[currentIndex];
+            const lastAns = userAnswers[currentIndex];
+            if (!lastAns) { showToast("Answer first"); return; }
+
+            responseHistory.push({ id: lastQ.id, a: lastQ.irt_a, b: lastQ.irt_b, c: lastQ.irt_c, isCorrect: lastAns === lastQ.answer });
+            const eap = IRT.estimateThetaEAP(responseHistory);
+            currentTheta = eap.theta; currentSE = eap.se;
+            
+            const total = currentExamList.length;
+            if (total >= config.totalQuestions || (currentSE <= 0.3 && total >= 5)) { submitPaper(); return; }
+
+            const usedIds = new Set(currentExamList.map(q => q.id));
+            let candidates = allQuestions.filter(q => !usedIds.has(q.id));
+            const win = candidates.filter(q => Math.abs(q.irt_b - currentTheta) <= 2.0);
+            if(win.length > 10) candidates = win;
+
+            if (candidates.length) {
+                candidates.forEach(q => q.score = IRT.getFisherInfo(currentTheta, q.irt_a, q.irt_b, q.irt_c));
+                candidates.sort((a, b) => b.score - a.score);
+                currentExamList.push(candidates[Math.floor(Math.random() * Math.min(5, candidates.length))]);
+                renderSheet();
+            } else { submitPaper(); return; }
+        }
+        if(currentIndex < currentExamList.length-1) { currentIndex++; renderQuestion(); window.scrollTo(0,0); }
+    }
+    
+    function prevQuestion() { if(currentIndex > 0) { currentIndex--; renderQuestion(); } }
+
+    // --- Smart Bracket Formatter ---
+    function formatQuestionTitle(q) {
+        const ua = userAnswers[currentIndex];
+        const showAnswer = currentMode === 'review' || currentMode === 'mistake'; 
+        // Regex to match various bracket styles: ( ), （ ）, (), （）
+        const bracketRegex = /(\(|（)\s*(\)|）)/g;
+        
+        let displayTitle = q.title;
+        
+        // If showing answer/review, fill brackets with correct answer
+        if (showAnswer) {
+             const ansText = q.options[q.answer] || q.answer; // Fallback to letter if text missing
+             // Replace brackets with filled answer
+             displayTitle = displayTitle.replace(bracketRegex, 
+                 `<span class="bracket-filled">${ansText}</span>`
+             );
+        } else {
+             // Normal mode: standardize brackets visually
+             displayTitle = displayTitle.replace(bracketRegex, 
+                 `<span class="bracket-placeholder">( &nbsp;&nbsp; )</span>`
+             );
+        }
+        return displayTitle;
+    }
+
+    function renderQuestion() {
+        const q = currentExamList[currentIndex], ua = userAnswers[currentIndex];
+        document.getElementById('question-type-badge').innerText = q.type==='judge' ? t('judge') : t('choice');
+        document.getElementById('exam-progress-text').innerText = `${currentIndex+1} / ${currentMode === 'exam' ? config.totalQuestions : currentExamList.length}`;
+        document.getElementById('progress-bar').value = ((currentIndex+1)/(currentMode === 'exam' ? config.totalQuestions : currentExamList.length))*100;
+        document.getElementById('irt-ability-display').innerText = `θ: ${currentTheta.toFixed(2)} (SE: ${currentSE.toFixed(2)})`;
+
+        let opts = '';
+        const icons = { 'A': 'looks_one', 'B': 'looks_two', 'C': 'looks_3', 'D': 'looks_4', 'True': 'check_circle', 'False': 'cancel' };
+        
+        ['A','B','C','D'].forEach(k => {
+            if(!q.options[k]) return; 
+            let cls = 'option-item';
+            let iconName = icons[k];
+            
+            if(currentMode==='exam') { if(ua===k) cls+=' selected'; }
+            else if(ua) {
+                if(k===q.answer) cls+=' correct';
+                else if(ua===k) cls+=' wrong';
+            } else if(ua===k) cls+=' selected';
+            
+            if(q.type === 'judge') { 
+                iconName = k===q.answer ? 'check_circle' : 'cancel'; 
+                if(currentMode === 'exam') iconName = k==='A' ? 'check_circle' : 'cancel';
+            }
+
+            opts += `<div class="${cls}" onclick="handleOption('${k}')">
+                <div class="option-icon-wrapper"><mdui-icon name="${iconName}"></mdui-icon></div>
+                <div class="option-content">${q.options[k]}</div>
+            </div>`;
+        });
+
+        let aiBtn = (currentMode!=='exam' && ua) ? `<div style="margin-top:24px;"><mdui-button variant="tonal" icon="auto_awesome" full-width onclick="generateAIAnalysis()" id="btn-ai-analysis">${t('aiButton')}</mdui-button></div>` : '';
+
+        // Use the formatted title
+        document.getElementById('question-container').innerHTML = `<div class="question-text">${formatQuestionTitle(q)}</div><div class="options-list">${opts}</div>${aiBtn}`;
+        
+        const aiBox = document.getElementById('ai-analysis-box');
+        if(q.aiAnalysis) {
+            aiBox.style.display = 'block';
+            document.getElementById('ai-analysis-content').innerHTML = q.aiAnalysis;
+            if(document.getElementById('btn-ai-analysis')) document.getElementById('btn-ai-analysis').style.display = 'none';
+        } else {
+            aiBox.style.display = 'none';
+        }
+
+        document.getElementById('btn-prev').disabled = currentIndex===0;
+        document.getElementById('btn-next').style.display = 'inline-flex'; 
+        document.getElementById('btn-submit').className = (currentIndex === currentExamList.length - 1 && currentMode !== 'exam') ? '' : 'hidden';
+    }
+    
+    function handleOption(k) {
+        if(currentMode!=='exam' && userAnswers[currentIndex]) return;
+        userAnswers[currentIndex] = k;
+        if(currentMode!=='exam') {
+            const q = currentExamList[currentIndex];
+            if(k !== q.answer) addToMistake(q);
+            else if(currentMode==='mistake') { removeFromMistake(q); showToast(t('removedMistake')); }
+        }
+        renderQuestion();
+    }
+    
+    function jump(i) { if (i < currentExamList.length) { currentIndex = i; renderQuestion(); document.getElementById('sheet-dialog').open = false; } }
+    
+    function submitPaper() {
+        document.getElementById('sheet-dialog').open = false; clearInterval(timerInterval);
+        currentExamList.forEach((q, i) => { if(userAnswers[i]!==q.answer && userAnswers[i]) addToMistake(q); });
+        document.getElementById('result-score').innerText = IRT.thetaToScore(currentTheta);
+        document.getElementById('result-theta').innerText = `Ability (θ): ${currentTheta.toFixed(3)} (SE: ${currentSE.toFixed(2)})`;
+        currentMode = 'review'; showPage('page-result');
+    }
+    
+    function renderSheet() {
+        let h = '';
+        const total = currentMode === 'exam' ? config.totalQuestions : currentExamList.length;
+        for (let i = 0; i < total; i++) {
+            let c = 'sheet-item';
+            if (i < currentExamList.length) {
+                const ua = userAnswers[i];
+                if(currentMode==='exam' && ua) c += ' active';
+                else if(ua) c += (ua===currentExamList[i].answer ? ' correct' : ' wrong');
+                h += `<div class="${c}" onclick="jump(${i})">${i + 1}</div>`;
+            } else h += `<div class="${c} locked">${i + 1}</div>`;
+        }
+        document.getElementById('answer-sheet').innerHTML = h;
+    }
+    
+    function saveSettings() {
+        config.totalQuestions = parseInt(document.getElementById('setting-total').value);
+        config.judgeCount = parseInt(document.getElementById('setting-judge').value);
+        userApiKey = document.getElementById('setting-api-key').value;
+        Storage.save('gemini_api_key', userApiKey);
+        Storage.save('examConfig', config);
+        document.getElementById('settings-dialog').open = false;
+        showToast(t('saveSuccess'));
+    }
+    
+    function handleGoHome() { if(!document.getElementById('page-home').classList.contains('hidden')) return; document.getElementById('confirm-exit-dialog').open = true; }
+    function confirmExit() { document.getElementById('confirm-exit-dialog').open = false; showPage('page-home'); }
+    function reviewWrongQuestions() { currentMode = 'review'; showPage('page-exam'); currentIndex = 0; renderQuestion(); }
+
+    window.onload = function() {
+        initTheme();
+        const sd = Storage.load('examQuestions');
+        if (sd) { try { allQuestions = sd; IRT.init(allQuestions); updateDashboard(); } catch(e){} }
+        const sc = Storage.load('examConfig'); if (sc) config = sc;
+        const sk = Storage.load('gemini_api_key'); if(sk) userApiKey = sk;
+    };
+
+    // Expose
+    Object.assign(window, { clearAppCache, startMistakeReview, startExam, startPractice, handleFileUpload, downloadTemplate, saveSettings, openSettings, handleGoHome, confirmExit, prevQuestion, nextQuestion, submitPaper, jump, handleOption, reviewWrongQuestions, showPage, generateAIAnalysis, verifyApiKey, toggleLanguage, openFileManager, performAIAnalysis });
+</script>
+</body>
+</html>
